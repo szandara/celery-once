@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-from celery import Task, states
+import logging
+
+from celery import Task, states, task
 from celery.result import EagerResult, AsyncResult
 from inspect import getcallargs
 from .helpers import queue_once_key, get_redis, now_unix
@@ -9,7 +11,6 @@ class AlreadyQueued(Exception):
     def __init__(self, countdown):
         self.message = "Expires in {} seconds".format(countdown)
         self.countdown = countdown
-
 
 class QueueOnceBase(Task):
     AlreadyQueued = AlreadyQueued
@@ -208,12 +209,14 @@ class QueueOnceId(QueueOnceBase):
         if task_id == '':
             raise ValueError("You must select a task id in order to use QueueOnceId")
 
+
         once_options = options.get('once', {})
-        once_graceful = once_options.get(
-            'graceful', self.once.get('graceful', False))
-        once_timeout = once_options.get(
-            'timeout', self.once.get('timeout', self.default_timeout))
-        no_result = once_options.get('no_results')
+        once_graceful = once_options.get('graceful'
+                                         , self.once.get('graceful', False))
+        once_timeout = once_options.get('timeout'
+                                        , self.once.get('timeout', self.default_timeout))
+        no_result = once_options.get('no_results'
+                                     , self.once.get('no_results', False))
 
         key = self.get_key(task_id)
         try:
@@ -221,7 +224,7 @@ class QueueOnceId(QueueOnceBase):
         except self.AlreadyQueued as e:
             if once_graceful:
                 if no_result:
-                    return EagerResult(None, None, states.SUCCESS)
+                    return no_op.apply_async(**options)
                 else:
                     return AsyncResult(task_id)
             raise e
@@ -234,3 +237,9 @@ class QueueOnceId(QueueOnceBase):
         """
         key = self.get_key(task_id)
         self.clear_lock(key)
+
+
+
+@task(name='no_op')
+def no_op():
+    pass
